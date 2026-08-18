@@ -1,0 +1,170 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// Admin users only — guests never have accounts
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String   // bcrypt-hashed
+  role      UserRole @default(ADMIN)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdEvents Event[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+}
+
+model Event {
+  id              String      @id @default(cuid())
+  slug            String      @unique
+  title           String
+  description     String?
+  date            DateTime
+  endDate         DateTime?
+  location        String?
+  locationDetails String?
+  coverImageUrl   String?
+  status          EventStatus @default(DRAFT)
+  maxGuests       Int?
+  rsvpDeadline    DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  createdBy       User            @relation(fields: [createdById], references: [id])
+  createdById     String
+  guestCategories GuestCategory[]
+  guests          Guest[]
+  invitations     Invitation[]
+  reviews         Review[]
+
+  @@map("events")
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+  COMPLETED
+}
+
+// Per-event guest categories (Family, Friends, Colleagues, VIP, etc.)
+model GuestCategory {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  color       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  event   Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId String
+  guests  Guest[]
+
+  @@unique([eventId, name])
+  @@map("guest_categories")
+}
+
+model Guest {
+  id             String   @id @default(cuid())
+  firstName      String
+  lastName       String
+  email          String?
+  phone          String?
+  plusOneAllowed Boolean  @default(false)
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  event      Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId    String
+  category   GuestCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  categoryId String?
+  invitation Invitation?
+  rsvp       RSVP?
+
+  @@map("guests")
+}
+
+// Unique invitation link per guest — code appears in /i/ABX92K
+model Invitation {
+  id        String           @id @default(cuid())
+  code      String           @unique
+  status    InvitationStatus @default(PENDING)
+  sentAt    DateTime?
+  viewedAt  DateTime?
+  expiresAt DateTime?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  guest   Guest  @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  guestId String @unique
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId String
+  rsvp    RSVP?
+
+  @@map("invitations")
+}
+
+enum InvitationStatus {
+  PENDING
+  SENT
+  VIEWED
+  RESPONDED
+}
+
+// Guest response submitted through their unique invitation link (no auth)
+model RSVP {
+  id           String     @id @default(cuid())
+  response     RSVPStatus
+  plusOneName  String?
+  dietaryNeeds String?
+  message      String?
+  submittedAt  DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  invitation   Invitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+  invitationId String     @unique
+  guest        Guest      @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  guestId      String     @unique
+
+  @@map("rsvps")
+}
+
+enum RSVPStatus {
+  ATTENDING
+  NOT_ATTENDING
+  MAYBE
+}
+
+// Post-event public review — moderated by admin before going public
+model Review {
+  id             String   @id @default(cuid())
+  reviewerName   String
+  rating         Int
+  title          String?
+  body           String
+  isApproved     Boolean  @default(false)
+  isPublic       Boolean  @default(false)
+  invitationCode String?
+  submittedAt    DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId String
+
+  @@map("reviews")
+}
